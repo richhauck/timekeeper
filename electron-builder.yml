@@ -1,0 +1,30 @@
+appId: com.timekeeper.app
+productName: Timekeeper
+copyright: Copyright © 2026 Rich Hauck
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - "!**/*.map"
+win:
+  target: nsis
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+mac:
+  target: dmg
+  category: public.app-category.productivity
+  icon: build/icon.png
+  hardenedRuntime: true
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  icon: build/icon.png
+  maintainer: Rich Hauck
