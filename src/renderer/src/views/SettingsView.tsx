@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useState, type CSSProperties, type MouseEvent } from 'react'
 import { roundForSettings } from '@shared/rounding'
 import { formatHM } from '@shared/time'
 import { ROUNDING_OPTIONS, type AppInfo, type RoundingMode, type Settings, type Theme } from '@shared/types'
@@ -12,11 +12,15 @@ const MODES: { id: RoundingMode; label: string; hint: string }[] = [
   { id: 'down', label: 'Always down', hint: 'Only completed increments count.' }
 ]
 
+const incLabel = (n: number) => (n ? `${n} min` : 'Off')
+const indexOfIncrement = (n: number) => Math.max(0, (ROUNDING_OPTIONS as readonly number[]).indexOf(n))
+
 const SECTIONS = [
   { id: 'round-h', label: 'Rounding' },
   { id: 'idle-h', label: 'Idle detection' },
   { id: 'gen-h', label: 'General' },
-  { id: 'data-h', label: 'Data' }
+  { id: 'data-h', label: 'Data' },
+  { id: 'about-h', label: 'About' }
 ] as const
 
 /** The section whose heading was last scrolled past (or the last one at the bottom of the page). */
@@ -53,10 +57,12 @@ export function SettingsView() {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [idleText, setIdleText] = useState(String(settings.idleThresholdMinutes))
   const [active, setActive] = useActiveSection()
+  const [incIndex, setIncIndex] = useState(() => indexOfIncrement(settings.roundingMinutes))
 
   useEffect(() => {
     window.api.getAppInfo().then(setInfo)
   }, [])
+  useEffect(() => setIncIndex(indexOfIncrement(settings.roundingMinutes)), [settings.roundingMinutes])
   useEffect(() => setIdleText(String(settings.idleThresholdMinutes)), [settings.idleThresholdMinutes])
 
   const save = async (patch: Partial<Settings>) => {
@@ -111,25 +117,39 @@ export function SettingsView() {
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <span id="inc-l" style={{ fontSize: 13, fontWeight: 600 }}>
-              Round each entry to
-            </span>
-            <div role="group" aria-labelledby="inc-l" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {ROUNDING_OPTIONS.map((n) => {
-                const on = settings.roundingMinutes === n
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    aria-pressed={on}
-                    className={`btn${on ? ' primary' : ''}`}
-                    style={{ minWidth: 64, fontWeight: on ? 600 : 400 }}
-                    onClick={() => save({ roundingMinutes: n })}
-                  >
-                    {n ? `${n} min` : 'Off'}
-                  </button>
-                )
-              })}
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+              <label htmlFor="inc-range" style={{ fontSize: 13, fontWeight: 600 }}>
+                Round each entry to
+              </label>
+              <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent-strong)' }}>
+                {incLabel(ROUNDING_OPTIONS[incIndex])}
+              </span>
+            </div>
+            <input
+              id="inc-range"
+              type="range"
+              className="range"
+              min={0}
+              max={ROUNDING_OPTIONS.length - 1}
+              step={1}
+              value={incIndex}
+              aria-valuetext={incLabel(ROUNDING_OPTIONS[incIndex])}
+              style={{ '--fill': `${(incIndex / (ROUNDING_OPTIONS.length - 1)) * 100}%` } as CSSProperties}
+              onChange={(e) => {
+                const i = Number(e.target.value)
+                setIncIndex(i)
+                if (ROUNDING_OPTIONS[i] !== settings.roundingMinutes) save({ roundingMinutes: ROUNDING_OPTIONS[i] })
+              }}
+            />
+            <div className="range-ticks" aria-hidden="true">
+              {ROUNDING_OPTIONS.map((n, i) => (
+                <button key={n} type="button" tabIndex={-1} className={i === incIndex ? 'on' : undefined} onClick={() => {
+                  setIncIndex(i)
+                  save({ roundingMinutes: n })
+                }}>
+                  {n ? n : 'Off'}
+                </button>
+              ))}
             </div>
           </div>
           <fieldset style={{ margin: 0, padding: 0, border: 'none', display: 'flex', flexDirection: 'column', gap: 10 }} disabled={!settings.roundingMinutes}>
@@ -262,11 +282,36 @@ export function SettingsView() {
               </button>
             </div>
           </div>
-          {info && (
-            <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-              Timekeeper {info.version}
+        </section>
+
+        <section aria-labelledby="about-h" className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <h2 id="about-h" tabIndex={-1} className="settings-anchor" style={{ fontSize: 18 }}>
+            About
+          </h2>
+          <div>
+            <p style={{ margin: 0, fontWeight: 600 }}>Timekeeper{info ? ` ${info.version}` : ''}</p>
+            <p className="muted" style={{ margin: '4px 0 0' }}>
+              Created by{' '}
+              <a href="https://hauckinteractive.com" target="_blank" rel="noreferrer">
+                Hauck Interactive, Inc.
+              </a>
             </p>
-          )}
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>License</p>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              Copyright © {new Date().getFullYear()} Hauck Interactive, Inc. Released under the MIT License: you may use, copy, modify and distribute this software
+              freely, provided the copyright and license notice are kept.
+            </p>
+          </div>
+          <div className="notice warn">
+            <InfoIcon style={{ color: 'var(--danger)', flex: 'none' }} />
+            <p style={{ margin: 0, fontSize: 13 }}>
+              <strong>Use at your own risk.</strong> This software is provided "as is", without warranty of any kind, express or implied. In no event shall Hauck
+              Interactive, Inc. or its contributors be liable for any claim, damages, lost data or other liability arising from the use of this software. Keep your own
+              backups of anything you depend on.
+            </p>
+          </div>
         </section>
       </div>
     </main>

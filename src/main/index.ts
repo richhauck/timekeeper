@@ -14,6 +14,7 @@ import {
   Tray,
   type MenuItemConstructorOptions
 } from 'electron'
+import { markdownToPlain } from '@shared/markdown'
 import { projectLabel } from '@shared/reports'
 import { entrySeconds, formatClock } from '@shared/time'
 import type { AppInfo, Entry, ExportRequest, IdleChoice, IdlePrompt, Settings } from '@shared/types'
@@ -358,7 +359,8 @@ function updateTray(): void {
   const template: MenuItemConstructorOptions[] = []
   if (running) {
     template.push({ label: `Tracking ${describeEntry(running).label}`, enabled: false })
-    if (running.description) template.push({ label: running.description, enabled: false })
+    const desc = markdownToPlain(running.description)
+    if (desc) template.push({ label: desc.length > 60 ? `${desc.slice(0, 59)}…` : desc, enabled: false })
     template.push({
       label: 'Stop timer',
       click: () => {

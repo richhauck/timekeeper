@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { markdownToPlain } from '@shared/markdown'
 import { describeRounding, roundForSettings } from '@shared/rounding'
 import { decimalHours, entrySeconds, formatHM, parseDateKey } from '@shared/time'
 import type { Entry, ExportRequest } from '@shared/types'
@@ -154,7 +155,7 @@ export function ExportDialog({ initialFrom, initialTo, initialFilters, onClose, 
                   p?.clientId != null ? clientById.get(p.clientId)?.name ?? '' : '',
                   p ? (p.code ? `${p.code} ${p.name}` : p.name) : '',
                   e.tagIds.map((t) => tagById.get(t)?.name).filter(Boolean).join(', '),
-                  e.description,
+                  markdownToPlain(e.description),
                   decimalHours(rounded).toFixed(2),
                   formatHM(rounded)
                 ].map((v, i) => (

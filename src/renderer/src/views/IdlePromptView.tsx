@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { markdownToPlain } from '@shared/markdown'
 import { entrySeconds, formatClock, formatTimeOfDay } from '@shared/time'
 import type { IdleChoice, IdlePrompt } from '@shared/types'
 import { useData, useNow } from '../data'
@@ -75,7 +76,7 @@ export function IdlePromptView() {
         <span className="dot" style={{ background: prompt.projectColor }} />
         <span className="ellipsis" style={{ flex: 1 }}>
           <strong style={{ fontWeight: 600 }}>{prompt.projectLabel}</strong>
-          {prompt.description ? ` · ${prompt.description}` : ''}
+          {prompt.description ? ` · ${markdownToPlain(prompt.description)}` : ''}
         </span>
         {running && <span className="mono">{formatClock(entrySeconds(running.start, null, now))}</span>}
       </div>

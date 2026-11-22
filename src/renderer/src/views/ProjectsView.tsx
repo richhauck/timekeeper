@@ -184,6 +184,33 @@ function ProjectsTab({ query, setQuery, hours, addSignal }: { query: string; set
             <span>Status</span>
             <span style={{ textAlign: 'right' }}>This month</span>
           </div>
+          {selected === 'new' && (
+            <button
+              type="button"
+              className="list-row"
+              style={{ gridTemplateColumns: cols }}
+              aria-pressed
+              aria-label="New project (unsaved)"
+              onClick={() => document.getElementById('p-name')?.focus()}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <span className="dot" style={{ background: draft.color }} />
+                <span className="ellipsis">
+                  {draft.code.trim() && <strong style={{ fontWeight: 600 }}>{draft.code} </strong>}
+                  {draft.name.trim() ? draft.name : <span className="muted" style={{ fontStyle: 'italic' }}>New project</span>}
+                </span>
+              </span>
+              <span className="ellipsis" style={{ fontSize: 13, color: 'var(--text-2)' }}>
+                {draft.clientId != null ? clientById.get(draft.clientId)?.name : 'No client'}
+              </span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Unsaved
+              </span>
+              <span className="mono muted" style={{ textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
+                {formatHM(0)}
+              </span>
+            </button>
+          )}
           {list.map((p) => (
             <button key={p.id} type="button" className="list-row" style={{ gridTemplateColumns: cols }} aria-pressed={selected === p.id} onClick={() => setSelected(p.id)}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -204,7 +231,7 @@ function ProjectsTab({ query, setQuery, hours, addSignal }: { query: string; set
               </span>
             </button>
           ))}
-          {list.length === 0 && <p className="empty">{catalog.projects.length ? 'No projects match your search.' : 'No projects yet. Create one on the right.'}</p>}
+          {list.length === 0 && selected !== 'new' && <p className="empty">{catalog.projects.length ? 'No projects match your search.' : 'No projects yet. Create one on the right.'}</p>}
         </section>
       </div>
 

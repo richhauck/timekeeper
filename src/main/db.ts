@@ -339,11 +339,13 @@ export class Store {
   // ---------- entries ----------
 
   listEntries(q: EntryQuery): Entry[] {
+    const limit = Number.isInteger(q.limit) && q.limit! > 0 ? q.limit! : -1
     const rows = this.all<EntryRow>(
       `SELECT * FROM time_entries
        WHERE start_utc < ? AND (end_utc IS NULL OR end_utc >= ?)
-       ORDER BY start_utc DESC`,
-      [q.to, q.from]
+       ORDER BY start_utc DESC
+       LIMIT ?`,
+      [q.to, q.from, limit]
     )
     return this.withTags(rows)
   }

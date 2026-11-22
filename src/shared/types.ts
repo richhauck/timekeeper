@@ -94,6 +94,8 @@ export interface EntryQuery {
   from: string
   /** Exclusive upper bound, ISO UTC. Entries that start before this are included. */
   to: string
+  /** Optional cap on the number of entries returned (most recent first). */
+  limit?: number
 }
 
 export type IdleChoice = 'keep' | 'discard' | 'discard-stop'

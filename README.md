@@ -62,3 +62,7 @@ resources/      App and tray icons
 - **Linux tray:** GNOME needs the AppIndicator extension to show tray icons.
 - Notification action buttons appear only on macOS. On Windows and Linux, click the notification or answer the prompt that appears when you return.
 - "Open at login" is not available on Linux.
+
+## License
+
+MIT © 2026 Hauck Interactive, Inc. Provided "as is", without warranty of any kind; use at your own risk. See [LICENSE](LICENSE).

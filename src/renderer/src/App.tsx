@@ -43,10 +43,10 @@ function MainApp() {
   return (
     <div className="app">
       <nav className="topnav" aria-label="Main navigation">
-        <div className="brand">
+        <button type="button" className="brand" onClick={() => setView('timer')} title="Go to the timer">
           <Logo />
           <span>Timekeeper</span>
-        </div>
+        </button>
         {NAV.map(({ id, label, Icon }) => (
           <button key={id} type="button" className="navlink" aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>
             <Icon />

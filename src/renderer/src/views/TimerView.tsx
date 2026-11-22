@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { roundForSettings } from '@shared/rounding'
-import { addDays, dateKey, entrySeconds, formatClock, formatHM, formatLongDate, startOfDay, toTimeInput, withTimeInput } from '@shared/time'
+import { addDays, dateKey, entrySeconds, formatClock, formatHM, formatLongDate, toTimeInput, withTimeInput } from '@shared/time'
 import type { Entry } from '@shared/types'
 import { errorMessage, tagIdsForNames, useData, useNow } from '../data'
-import { ChevronLeft, ChevronRight, GripIcon, PlayIcon, StopIcon, TrashIcon } from '../components/Icons'
+import { GripIcon, PlayIcon, StopIcon, TrashIcon } from '../components/Icons'
 import { ProjectSelect } from '../components/ProjectSelect'
 import { TagInput } from '../components/TagInput'
+import { AutoTextarea, DescriptionField } from '../components/DescriptionInput'
 import { useToast } from '../components/Toast'
 
 export function TimerView({ onGoToProjects }: { onGoToProjects(): void }) {
@@ -119,22 +120,25 @@ function TimerBar() {
           </div>
         </div>
         <div className="field" style={{ flex: '1 1 320px' }}>
-          <label className="label" htmlFor="timer-desc">
-            What are you working on?
-          </label>
-          <input
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <label className="label" htmlFor="timer-desc">
+              What are you working on?
+            </label>
+            <span id="timer-desc-hint" className="muted" style={{ fontSize: 12 }}>
+              Markdown · Shift+Enter for a new line
+            </span>
+          </div>
+          <AutoTextarea
             id="timer-desc"
-            className="input lg"
+            className="input lg textarea"
             placeholder="Describe the work"
+            aria-describedby="timer-desc-hint"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             onBlur={() => running && description !== running.description && update({ description })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                if (running) update({ description })
-                else toggle()
-              }
+            onSubmit={() => {
+              if (running) update({ description })
+              else toggle()
             }}
           />
         </div>
@@ -174,7 +178,7 @@ function TimerBar() {
               height: 48,
               border: 'none',
               borderRadius: 10,
-              background: running ? 'var(--danger-btn)' : 'var(--accent-btn)',
+              background: running ? 'var(--danger-btn)' : 'var(--start-btn)',
               color: '#fff',
               fontSize: 15,
               fontWeight: 600
@@ -193,8 +197,19 @@ function TimerBar() {
 
 type ColKey = 'time' | 'project' | 'desc' | 'dur'
 
+const PAGE_SIZE = 50
+const EARLIEST = new Date(0).toISOString()
+const LATEST = '9999-12-31T00:00:00.000Z'
+
+function dayLabel(d: Date): string {
+  const key = dateKey(d)
+  if (key === dateKey(new Date())) return 'Today'
+  if (key === dateKey(addDays(new Date(), -1))) return 'Yesterday'
+  return formatLongDate(d)
+}
+
 const COLS: Record<ColKey, { label: string; width: string; right?: boolean }> = {
-  time: { label: 'Time', width: '216px' },
+  time: { label: 'Time', width: '260px' },
   project: { label: 'Project', width: 'minmax(200px, 1.1fr)' },
   desc: { label: 'Description and tags', width: 'minmax(240px, 2fr)' },
   dur: { label: 'Duration', width: '96px', right: true }
@@ -203,25 +218,40 @@ const COLS: Record<ColKey, { label: string; width: string; right?: boolean }> = 
 function EntriesSection() {
   const { version, settings, running, catalog } = useData()
   const toast = useToast()
-  const [day, setDay] = useState(() => startOfDay(new Date()))
+  const [limit, setLimit] = useState(PAGE_SIZE)
   const [entries, setEntries] = useState<Entry[]>([])
   const [order, setOrder] = useState<ColKey[]>(['time', 'project', 'desc', 'dur'])
   const [dragging, setDragging] = useState<ColKey | null>(null)
   const [over, setOver] = useState<ColKey | null>(null)
-  const isToday = dateKey(day) === dateKey(new Date())
 
   useEffect(() => {
     let cancelled = false
-    window.api.listEntries({ from: day.toISOString(), to: addDays(day, 1).toISOString() }).then((list) => {
+    // Fetch one extra so the running entry (filtered out below) doesn't shrink the page.
+    window.api.listEntries({ from: EARLIEST, to: LATEST, limit: limit + 1 }).then((list) => {
       if (!cancelled) setEntries(list)
     })
     return () => {
       cancelled = true
     }
-  }, [day, version])
+  }, [limit, version])
 
-  const finished = useMemo(() => entries.filter((e) => e.end !== null && e.id !== running?.id), [entries, running?.id])
-  const total = finished.reduce((sum, e) => sum + roundForSettings(entrySeconds(e.start, e.end), settings), 0)
+  const finished = useMemo(() => entries.filter((e) => e.end !== null && e.id !== running?.id).slice(0, limit), [entries, running?.id, limit])
+  const hasMore = entries.length > limit
+  const groups = useMemo(() => {
+    const out: { key: string; label: string; entries: Entry[]; total: number }[] = []
+    for (const e of finished) {
+      const d = new Date(e.start)
+      const key = dateKey(d)
+      let g = out[out.length - 1]
+      if (!g || g.key !== key) {
+        g = { key, label: dayLabel(d), entries: [], total: 0 }
+        out.push(g)
+      }
+      g.entries.push(e)
+      g.total += roundForSettings(entrySeconds(e.start, e.end), settings)
+    }
+    return out
+  }, [finished, settings])
 
   const move = (from: number, to: number) => {
     const next = order.slice()
@@ -251,16 +281,9 @@ function EntriesSection() {
       toast('Create a project first.', { error: true })
       return
     }
-    let end: Date
-    if (isToday) {
-      end = new Date()
-      end.setSeconds(0, 0)
-    } else {
-      end = new Date(day)
-      end.setHours(9, 30, 0, 0)
-    }
+    const end = new Date()
+    end.setSeconds(0, 0)
     const start = new Date(end.getTime() - 30 * 60000)
-    if (start < day) start.setTime(day.getTime())
     try {
       await window.api.createEntry({ projectId, description: '', start: start.toISOString(), end: end.toISOString(), tagIds: [] })
     } catch (err) {
@@ -274,30 +297,16 @@ function EntriesSection() {
     <section aria-labelledby="entries-h" className="card" style={{ overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button type="button" className="icon-btn" aria-label="Previous day" onClick={() => setDay((d) => addDays(d, -1))}>
-            <ChevronLeft />
-          </button>
-          <h2 id="entries-h" className="h2" style={{ minWidth: 150, textAlign: 'center' }}>
-            {isToday ? "Today's entries" : formatLongDate(day)}
+          <h2 id="entries-h" className="h2">
+            Latest entries
           </h2>
-          <button type="button" className="icon-btn" aria-label="Next day" disabled={isToday} onClick={() => setDay((d) => addDays(d, 1))}>
-            <ChevronRight />
-          </button>
-          {!isToday && (
-            <button type="button" className="btn sm" onClick={() => setDay(startOfDay(new Date()))}>
-              Today
-            </button>
-          )}
-          <span className="muted" style={{ fontSize: 13, marginLeft: 8 }}>
-            {finished.length} {finished.length === 1 ? 'entry' : 'entries'} · {formatHM(total)} total
-          </span>
         </div>
         <button type="button" className="btn" style={{ height: 36, fontSize: 13 }} onClick={addManual}>
           + Add entry manually
         </button>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 820 }}>
+        <div style={{ minWidth: 864 }}>
           <div className="table-head" style={{ gridTemplateColumns: gridCols }}>
             {order.map((k, i) => {
               const from = dragging ? order.indexOf(dragging) : -1
@@ -350,13 +359,28 @@ function EntriesSection() {
             })}
             <span />
           </div>
-          {finished.map((e) => (
-            <EntryRow key={e.id} entry={e} order={order} gridCols={gridCols} onDelete={() => remove(e)} />
+          {groups.map((g) => (
+            <div key={g.key} role="group" aria-label={g.label}>
+              <div className="day-head">
+                <span>{g.label}</span>
+                <span className="mono">{formatHM(g.total)}</span>
+              </div>
+              {g.entries.map((e) => (
+                <EntryRow key={e.id} entry={e} order={order} gridCols={gridCols} onDelete={() => remove(e)} />
+              ))}
+            </div>
           ))}
           {finished.length === 0 && (
             <p className="empty" style={{ margin: 0 }}>
-              {isToday ? 'No entries today. Start the timer or add one manually.' : 'No entries on this day.'}
+              No entries yet. Start the timer or add one manually.
             </p>
+          )}
+          {hasMore && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 12 }}>
+              <button type="button" className="btn sm" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
+                Show more
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -367,12 +391,10 @@ function EntriesSection() {
 function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: ColKey[]; gridCols: string; onDelete(): void }) {
   const { settings, catalog, tagById, projectById, clientById } = useData()
   const toast = useToast()
-  const [desc, setDesc] = useState(entry.description)
   const [start, setStart] = useState(toTimeInput(entry.start))
   const [end, setEnd] = useState(toTimeInput(entry.end!))
   // Pick up saved changes, including ones made elsewhere.
   useEffect(() => {
-    setDesc(entry.description)
     setStart(toTimeInput(entry.start))
     setEnd(toTimeInput(entry.end!))
   }, [entry.updatedAt, entry.description, entry.start, entry.end])
@@ -384,7 +406,6 @@ function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: C
       toast(errorMessage(err), { error: true })
       setStart(toTimeInput(entry.start))
       setEnd(toTimeInput(entry.end!))
-      setDesc(entry.description)
     }
   }
 
@@ -413,7 +434,7 @@ function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: C
               className="inl mono"
               aria-label="Start time"
               value={start}
-              style={{ width: 100, height: 32, padding: '0 4px', fontSize: 13, color: 'var(--text-2)' }}
+              style={{ width: 120, flex: 'none', height: 32, padding: '0 4px', fontSize: 13, color: 'var(--text-2)' }}
               onChange={(e) => setStart(e.target.value)}
               onBlur={() => saveTimes(start, end)}
             />
@@ -425,7 +446,7 @@ function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: C
               className="inl mono"
               aria-label="End time"
               value={end}
-              style={{ width: 100, height: 32, padding: '0 4px', fontSize: 13, color: 'var(--text-2)' }}
+              style={{ width: 120, flex: 'none', height: 32, padding: '0 4px', fontSize: 13, color: 'var(--text-2)' }}
               onChange={(e) => setEnd(e.target.value)}
               onBlur={() => saveTimes(start, end)}
             />
@@ -452,16 +473,7 @@ function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: C
       case 'desc':
         return (
           <div style={{ minWidth: 0 }}>
-            <input
-              className="inl"
-              aria-label="Description"
-              placeholder="Add a description"
-              value={desc}
-              style={{ width: '100%', height: 30, padding: '0 5px', fontSize: 14 }}
-              onChange={(e) => setDesc(e.target.value)}
-              onBlur={() => desc !== entry.description && save({ description: desc })}
-              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-            />
+            <DescriptionField ariaLabel="Description" placeholder="Add a description" value={entry.description} onSave={(description) => save({ description })} />
             <div style={{ paddingLeft: 2 }}>
               <TagInput compact value={tags} onChange={async (names) => save({ tagIds: await tagIdsForNames(names, catalog.tags) })} />
             </div>

@@ -1,6 +1,6 @@
 appId: com.timekeeper.app
 productName: Timekeeper
-copyright: Copyright © 2026 Rich Hauck
+copyright: Copyright © 2026 Hauck Interactive, Inc.
 directories:
   buildResources: build
   output: dist
@@ -8,6 +8,7 @@ files:
   - out/**
   - resources/**
   - package.json
+  - LICENSE
   - "!**/*.map"
 win:
   target: nsis

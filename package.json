@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "description": "Track work time against project codes, with idle detection, reports and Excel export.",
   "main": "out/main/index.js",
-  "author": "Rich Hauck",
-  "license": "UNLICENSED",
+  "author": "Hauck Interactive, Inc.",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
