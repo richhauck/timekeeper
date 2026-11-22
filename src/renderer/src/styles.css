@@ -199,6 +199,68 @@ button:disabled {
   max-width: 900px;
 }
 
+/* ---------- settings ---------- */
+
+.page.settings-page {
+  max-width: 1100px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
+  gap: 32px;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 24px;
+  padding-top: 52px;
+}
+
+.settings-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-navlink {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.settings-navlink:hover {
+  background: var(--surface-3);
+  border-radius: 0 6px 6px 0;
+}
+
+.settings-navlink[aria-current='location'] {
+  border-left-color: var(--accent);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.settings-anchor {
+  scroll-margin-top: 24px;
+}
+
+.settings-anchor:focus {
+  outline: none;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
