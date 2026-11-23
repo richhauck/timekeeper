@@ -41,6 +41,24 @@ const every = (ms: number, fn: () => void): void => {
 }
 let trayHintShown = false
 
+/**
+ * Controls for end-to-end tests, present only when TIMEKEEPER_E2E is set.
+ * Tests reach them through Playwright's app.evaluate() as
+ * globalThis.__timekeeperTest. They fake the system idle time, run an idle
+ * check on demand, move the idle monitor's clock forward (for sleep), and
+ * record notifications instead of showing them.
+ */
+export interface TestHooks {
+  idleSeconds: number | null
+  clockOffsetMs: number
+  notifications: { title: string; body: string }[]
+  tickIdle(): void
+}
+const testHooks: TestHooks | null = process.env.TIMEKEEPER_E2E
+  ? { idleSeconds: null, clockOffsetMs: 0, notifications: [], tickIdle: () => idle.tick() }
+  : null
+if (testHooks) Object.assign(globalThis, { __timekeeperTest: testHooks })
+
 const appRoot = (): string => app.getAppPath()
 const resource = (name: string): string => path.join(appRoot(), 'resources', name)
 
@@ -69,14 +87,16 @@ async function start(): Promise<void> {
   settings = store.getSettings()
   applySettings(settings)
 
+  // A timer may have been running when the app closed or crashed. Read the
+  // last heartbeat before the new heartbeat below overwrites it.
+  const lastSeen = lastSeenForRecovery(store)
+
   registerIpc()
   setupIdle()
   createTray()
   createMainWindow()
   startHeartbeat()
 
-  // A timer may have been running when the app closed or crashed.
-  const lastSeen = lastSeenForRecovery(store)
   if (lastSeen) idle.recoverFromGap(lastSeen)
 }
 
@@ -85,6 +105,9 @@ app.on('before-quit', () => {
   // A tick between closing the database and the process exiting would throw,
   // and Electron's error dialog for that keeps the app from quitting.
   for (const t of timers.splice(0)) clearInterval(t)
+  // Quitting with the idle prompt open counts as Keep, as closing it does.
+  // Answer it now, while the database is still open.
+  if (store && idle?.currentPrompt) resolveIdle('keep')
   if (store) {
     recordHeartbeat(store)
     store.close()
@@ -180,7 +203,7 @@ function openPromptWindow(): void {
   promptWindow.on('closed', () => {
     promptWindow = null
     // Closing the prompt without choosing keeps the idle time.
-    if (idle.currentPrompt) resolveIdle('keep')
+    if (idle.currentPrompt && !quitting) resolveIdle('keep')
   })
   loadRenderer(promptWindow, '/idle')
 }
@@ -236,7 +259,7 @@ function idleDetectionAvailable(): { ok: boolean; note?: string } {
 
 function setupIdle(): void {
   idle = new IdleMonitor({
-    getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    getIdleSeconds: () => testHooks?.idleSeconds ?? powerMonitor.getSystemIdleTime(),
     getRunning: () => store.getRunning(),
     getSettings: () => settings,
     describeEntry,
@@ -247,8 +270,14 @@ function setupIdle(): void {
       openPromptWindow()
     },
     onCleared: () => {
+      // Nothing left to decide (answered, timer stopped, or not asking):
+      // close the prompt and the "still counting" notification.
       broadcast('idle-prompt', null)
-    }
+      closePromptWindow()
+      idleNotification?.close()
+      idleNotification = null
+    },
+    now: () => Date.now() + (testHooks?.clockOffsetMs ?? 0)
   })
 
   let n = 0
@@ -265,11 +294,17 @@ function setupIdle(): void {
 }
 
 function showIdleNotification(minutes: number, label: string): void {
+  const title = `You've been idle for ${minutes} minute${minutes === 1 ? '' : 's'}`
+  const body = `Your timer for ${label} is still counting this time.`
+  if (testHooks) {
+    testHooks.notifications.push({ title, body })
+    return
+  }
   if (!Notification.isSupported()) return
   idleNotification?.close()
   const n = new Notification({
-    title: `You've been idle for ${minutes} minute${minutes === 1 ? '' : 's'}`,
-    body: `Your timer for ${label} is still counting this time.`,
+    title,
+    body,
     // Action buttons are shown by macOS. On Windows and Linux, clicking the
     // notification opens the prompt window instead.
     actions: isMac

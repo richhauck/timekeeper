@@ -39,10 +39,12 @@ export const test = base.extend<Fixtures>({
       delete env.ELECTRON_RENDERER_URL
       env.TIMEKEEPER_DB = path.join(dataDir, 'timekeeper.db')
       env.TIMEKEEPER_USER_DATA = path.join(dataDir, 'userData')
+      // Turn on the app's test controls (fake idle time, recorded notifications).
+      env.TIMEKEEPER_E2E = '1'
 
       const app = await electron.launch({ args: [ROOT], cwd: ROOT, env })
       open.push(app)
-      const page = await app.firstWindow()
+      const page = await mainWindow(app)
       await page.waitForLoadState('domcontentloaded')
       await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible()
       return { app, page }
@@ -54,6 +56,21 @@ export const test = base.extend<Fixtures>({
 export { expect }
 
 /**
+ * The main window. Not simply the first window: when the app starts with an
+ * idle question pending, the prompt window opens right after it, and either
+ * can be reported first.
+ */
+async function mainWindow(app: ElectronApplication): Promise<Page> {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    const main = app.windows().find((w) => !w.isClosed() && /index\.html(?!#\/idle)/.test(w.url()))
+    if (main) return main
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  throw new Error('The main window did not open.')
+}
+
+/**
  * Quit the app the way the tray's Quit does. Closing the window alone only
  * hides it to the tray, so the process would never exit. Falls back to
  * killing the process if it doesn't exit in time.
@@ -63,8 +80,13 @@ const quitted = new WeakSet<ElectronApplication>()
 export async function quit(app: ElectronApplication): Promise<void> {
   if (quitted.has(app)) return
   quitted.add(app)
-  const proc = app.process()
-  if (proc.exitCode !== null) return
+  let proc: ReturnType<ElectronApplication['process']>
+  try {
+    proc = app.process()
+  } catch {
+    return // already closed by the test
+  }
+  if (proc.exitCode !== null || proc.signalCode !== null) return
   const exited = new Promise<void>((resolve) => proc.once('exit', () => resolve()))
   await app.evaluate(({ app }) => app.quit()).catch(() => {})
   const done = await Promise.race([exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 5_000))])
