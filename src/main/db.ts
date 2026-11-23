@@ -21,7 +21,7 @@ import {
  * and is written to disk atomically after every change.
  */
 
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   // 1: initial schema
   `
   CREATE TABLE clients (
@@ -66,6 +66,26 @@ const MIGRATIONS: string[] = [
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  `,
+  // 2: never reuse entry ids. Without AUTOINCREMENT, deleting the newest entry
+  // let the next new entry take its id, so Undo could not put it back.
+  `
+  CREATE TABLE time_entries_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    description TEXT NOT NULL DEFAULT '',
+    start_utc TEXT NOT NULL,
+    end_utc TEXT,
+    idle_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  INSERT INTO time_entries_new (id, project_id, description, start_utc, end_utc, idle_seconds, created_at, updated_at)
+    SELECT id, project_id, description, start_utc, end_utc, idle_seconds, created_at, updated_at FROM time_entries;
+  DROP TABLE time_entries;
+  ALTER TABLE time_entries_new RENAME TO time_entries;
+  CREATE INDEX time_entries_start ON time_entries (start_utc);
+  CREATE INDEX time_entries_end ON time_entries (end_utc);
   `
 ]
 
@@ -97,14 +117,23 @@ export class Store {
   private migrate(): void {
     const version = Number(this.scalar('PRAGMA user_version') ?? 0)
     if (version >= MIGRATIONS.length) return
+    // Rebuilding a table means dropping it, which would cascade to the rows
+    // that reference it if foreign keys were on. The pragma has no effect
+    // inside a transaction, so switch it off first and check references
+    // before committing.
+    this.db.run('PRAGMA foreign_keys = OFF')
     this.db.run('BEGIN')
     try {
       for (let v = version; v < MIGRATIONS.length; v++) this.db.run(MIGRATIONS[v])
+      const broken = this.all('PRAGMA foreign_key_check')
+      if (broken.length) throw new Error(`Upgrading the database left ${broken.length} broken references.`)
       this.db.run(`PRAGMA user_version = ${MIGRATIONS.length}`)
       this.db.run('COMMIT')
     } catch (err) {
       this.db.run('ROLLBACK')
       throw err
+    } finally {
+      this.db.run('PRAGMA foreign_keys = ON')
     }
     this.save()
   }
@@ -408,6 +437,10 @@ export class Store {
 
   /** Re-insert a deleted entry with its original id (used by Undo). */
   restoreEntry(e: Entry): Entry {
+    if (this.entry(e.id)) throw new UserError('That entry has already been restored.')
+    if (!this.get('SELECT id FROM projects WHERE id = ?', [e.projectId])) {
+      throw new UserError("That entry's project was deleted, so it can't be restored.")
+    }
     return this.tx(() => {
       if (e.end === null) this.run('UPDATE time_entries SET end_utc = ? WHERE end_utc IS NULL', [nowIso()])
       this.run(

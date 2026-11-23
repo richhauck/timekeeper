@@ -65,6 +65,43 @@ describe('Store', () => {
     expect(back).toMatchObject({ id: e.id, description: 'Inbox', tagIds: [t.id] })
   })
 
+  it('undo still works after a new entry is added (ids are never reused)', async () => {
+    const s = await Store.open(file, WASM)
+    const p = s.createProject({ clientId: null, code: '', name: 'Internal', color: '#B7860B' })
+    const t = s.createTag('admin')
+    const e = s.createEntry({ projectId: p.id, description: 'Inbox', start: '2026-10-31T12:40:00.000Z', end: '2026-10-31T13:03:00.000Z', tagIds: [t.id] })
+    const removed = s.deleteEntry(e.id)!
+    const next = s.startTimer({ projectId: p.id, description: 'Next', tagIds: [] }, '2026-10-31T13:05:00.000Z')
+    expect(next.id).not.toBe(e.id)
+
+    const back = s.restoreEntry(removed)
+    expect(back).toMatchObject({ id: e.id, description: 'Inbox', tagIds: [t.id] })
+    expect(s.getRunning()?.id).toBe(next.id)
+    s.close()
+
+    // The id counter is saved too, so a reopened store doesn't reuse ids either.
+    const s2 = await Store.open(file, WASM)
+    const gone = s2.deleteEntry(next.id)!
+    const after = s2.createEntry({ projectId: p.id, description: 'Later', start: '2026-10-31T14:00:00.000Z', end: '2026-10-31T15:00:00.000Z', tagIds: [] })
+    expect(after.id).not.toBe(next.id)
+    expect(s2.restoreEntry(gone).id).toBe(next.id)
+    s2.close()
+  })
+
+  it('explains why an entry cannot be restored', async () => {
+    const s = await Store.open(file, WASM)
+    const p = s.createProject({ clientId: null, code: '', name: 'Internal', color: '#B7860B' })
+    const e = s.createEntry({ projectId: p.id, description: '', start: '2026-10-31T12:00:00.000Z', end: '2026-10-31T13:00:00.000Z', tagIds: [] })
+    const removed = s.deleteEntry(e.id)!
+    s.restoreEntry(removed)
+    expect(() => s.restoreEntry(removed)).toThrow('already been restored')
+
+    s.deleteEntry(e.id)
+    s.deleteProject(p.id)
+    expect(() => s.restoreEntry(removed)).toThrow("project was deleted")
+    s.close()
+  })
+
   it('cascades: deleting a project deletes its entries; deleting a client keeps projects', async () => {
     const s = await Store.open(file, WASM)
     const c = s.createClient({ name: 'Acme' })

@@ -20,7 +20,8 @@ import { entrySeconds, formatClock } from '@shared/time'
 import type { AppInfo, Entry, ExportRequest, IdleChoice, IdlePrompt, Settings } from '@shared/types'
 import { Store, UserError } from './db'
 import { buildWorkbook, exportRange, selectExportEntries } from './export'
-import { IdleMonitor, planIdleChoice } from './idle'
+import { IdleMonitor } from './idle'
+import { applyIdleChoice, lastSeenForRecovery, recordHeartbeat } from './session'
 
 const isMac = process.platform === 'darwin'
 const isLinux = process.platform === 'linux'
@@ -65,14 +66,14 @@ async function start(): Promise<void> {
   startHeartbeat()
 
   // A timer may have been running when the app closed or crashed.
-  const lastSeen = Number(store.getMeta('lastSeen') ?? 0)
+  const lastSeen = lastSeenForRecovery(store)
   if (lastSeen) idle.recoverFromGap(lastSeen)
 }
 
 app.on('before-quit', () => {
   quitting = true
   if (store) {
-    if (store.getRunning()) store.setMeta('lastSeen', String(Date.now()))
+    recordHeartbeat(store)
     store.close()
   }
 })
@@ -292,29 +293,12 @@ function resolveIdle(choice: IdleChoice): void {
   idleNotification?.close()
   idleNotification = null
   if (!prompt) return
-  const running = store.getRunning()
-  const nowIso = new Date().toISOString()
-  if (choice === 'keep') {
-    if (running && running.id === prompt.entryId) {
-      const kept = Math.max(0, Math.round((Date.parse(prompt.returnedAt) - Date.parse(prompt.idleSince)) / 1000))
-      store.updateEntry(running.id, { idleSeconds: running.idleSeconds + kept })
-    }
-  } else {
-    const plan = planIdleChoice(choice, prompt, running, nowIso)
-    if (plan && running) {
-      store.stopTimer(plan.endAt)
-      // Idle began before any real work in this entry: drop the empty entry.
-      if (Date.parse(plan.endAt) - Date.parse(running.start) < 60_000) store.deleteEntry(running.id)
-      if (plan.restartAt) store.startTimer({ projectId: running.projectId, description: running.description, tagIds: running.tagIds }, plan.restartAt)
-    }
-  }
+  applyIdleChoice(store, choice, prompt)
   dataChanged()
 }
 
 function startHeartbeat(): void {
-  const beat = (): void => {
-    if (store.getRunning()) store.setMeta('lastSeen', String(Date.now()))
-  }
+  const beat = (): void => recordHeartbeat(store)
   beat()
   setInterval(beat, 30_000)
 }
