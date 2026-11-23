@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { roundForSettings } from '@shared/rounding'
-import { addDays, dateKey, entrySeconds, formatClock, formatHM, formatLongDate, toTimeInput, withTimeInput } from '@shared/time'
+import { addDays, dateKey, entrySeconds, formatClock, formatHM, formatLongDate, timesFromInputs, toTimeInput } from '@shared/time'
 import type { Entry } from '@shared/types'
 import { errorMessage, tagIdsForNames, useData, useNow } from '../data'
 import { GripIcon, PlayIcon, StopIcon, TrashIcon } from '../components/Icons'
@@ -410,13 +410,10 @@ function EntryRow({ entry, order, gridCols, onDelete }: { entry: Entry; order: C
   }
 
   const saveTimes = (nextStart: string, nextEnd: string) => {
-    const s = withTimeInput(entry.start, nextStart)
-    let e = withTimeInput(entry.start, nextEnd)
-    if (!s || !e) return
-    // An end earlier than the start means the entry runs past midnight.
-    if (e < s) e = addDays(new Date(e), 1).toISOString()
-    if (s === entry.start && e === entry.end) return
-    save({ start: s, end: e })
+    const times = timesFromInputs(entry.start, nextStart, nextEnd)
+    if (!times) return
+    if (times.start === entry.start && times.end === entry.end) return
+    save(times)
   }
 
   const project = projectById.get(entry.projectId)

@@ -41,6 +41,11 @@ const resource = (name: string): string => path.join(appRoot(), 'resources', nam
 
 // ---------------------------------------------------------------- startup
 
+// Tests run each app instance with its own data folder. The single-instance
+// lock is tied to this folder, so test runs don't collide with each other or
+// with a copy of the app you have open.
+if (process.env.TIMEKEEPER_USER_DATA) app.setPath('userData', process.env.TIMEKEEPER_USER_DATA)
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {

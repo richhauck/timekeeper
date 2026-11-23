@@ -79,6 +79,22 @@ export function withTimeInput(baseIso: string, hhmm: string): string | null {
   return d.toISOString()
 }
 
+/**
+ * Start and end for an entry edited as two "HH:MM" inputs on the entry's
+ * local day. An end earlier than the start means the entry ran past midnight,
+ * so it ends at that time on the next day.
+ */
+export function timesFromInputs(baseIso: string, startHHMM: string, endHHMM: string): { start: string; end: string } | null {
+  const start = withTimeInput(baseIso, startHHMM)
+  const end = withTimeInput(baseIso, endHHMM)
+  if (!start || !end) return null
+  if (end >= start) return { start, end }
+  const next = new Date(end)
+  // setDate keeps the wall-clock time, even across a daylight saving change.
+  next.setDate(next.getDate() + 1)
+  return { start, end: next.toISOString() }
+}
+
 export function entrySeconds(start: string, end: string | null, now: Date = new Date()): number {
   const s = new Date(start).getTime()
   const e = end ? new Date(end).getTime() : now.getTime()
