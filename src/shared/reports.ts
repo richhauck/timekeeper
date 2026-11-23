@@ -1,5 +1,5 @@
 import { roundForSettings } from './rounding'
-import { addDays, addMonths, startOfDay, startOfMonth } from './time'
+import { addDays, addMonths, dateKey, startOfDay, startOfMonth } from './time'
 import type { Catalog, Entry, Settings } from './types'
 
 export type Period = 'day' | 'month' | 'year'
@@ -70,6 +70,16 @@ export function periodRange(period: Period, anchor: Date): { from: Date; to: Dat
   }
   const from = new Date(anchor.getFullYear(), 0, 1)
   return { from, to: new Date(anchor.getFullYear() + 1, 0, 1) }
+}
+
+/**
+ * The first and last local dates (YYYY-MM-DD, inclusive) of a period, as the
+ * export dialog takes them. Steps back a calendar day from the end rather
+ * than 24 hours, since days around daylight saving changes are 23 or 25 hours.
+ */
+export function periodDateKeys(period: Period, anchor: Date): { from: string; to: string } {
+  const { from, to } = periodRange(period, anchor)
+  return { from: dateKey(from), to: dateKey(addDays(to, -1)) }
 }
 
 export function shiftPeriod(period: Period, anchor: Date, step: number): Date {
@@ -144,10 +154,16 @@ export function buildReport(
   }
 }
 
+/**
+ * Whether an entry belongs in [from, to). Entries are half-open too, so one
+ * that ends exactly at `from` (say, at midnight) belongs to the period before.
+ * A zero-length entry belongs where it starts.
+ */
 function overlaps(entry: Entry, from: Date, to: Date, now: Date): boolean {
   const s = new Date(entry.start).getTime()
   const e = entry.end ? new Date(entry.end).getTime() : now.getTime()
-  return s < to.getTime() && e >= from.getTime() && !(e === s && (s < from.getTime() || s >= to.getTime()))
+  if (e <= s) return s >= from.getTime() && s < to.getTime()
+  return s < to.getTime() && e > from.getTime()
 }
 
 export function projectLabel(code: string, name: string): string {

@@ -34,6 +34,11 @@ let tray: Tray | null = null
 let idle: IdleMonitor
 let idleNotification: Notification | null = null
 let quitting = false
+/** Repeating timers, stopped on quit so none of them touches the closed database. */
+const timers: ReturnType<typeof setInterval>[] = []
+const every = (ms: number, fn: () => void): void => {
+  timers.push(setInterval(fn, ms))
+}
 let trayHintShown = false
 
 const appRoot = (): string => app.getAppPath()
@@ -77,6 +82,9 @@ async function start(): Promise<void> {
 
 app.on('before-quit', () => {
   quitting = true
+  // A tick between closing the database and the process exiting would throw,
+  // and Electron's error dialog for that keeps the app from quitting.
+  for (const t of timers.splice(0)) clearInterval(t)
   if (store) {
     recordHeartbeat(store)
     store.close()
@@ -244,11 +252,11 @@ function setupIdle(): void {
   })
 
   let n = 0
-  setInterval(() => {
+  every(2000, () => {
     n += 1
     // Every 15 seconds normally; every 2 seconds while waiting for the user to come back.
     if (idle.watchingForReturn || n % 7 === 0) idle.tick()
-  }, 2000)
+  })
 
   powerMonitor.on('suspend', () => idle.suspend())
   powerMonitor.on('lock-screen', () => idle.suspend())
@@ -305,7 +313,7 @@ function resolveIdle(choice: IdleChoice): void {
 function startHeartbeat(): void {
   const beat = (): void => recordHeartbeat(store)
   beat()
-  setInterval(beat, 30_000)
+  every(30_000, beat)
 }
 
 // ---------------------------------------------------------------- tray
@@ -320,7 +328,7 @@ function createTray(): void {
       if (!isMac) showMainWindow()
     })
     updateTray()
-    setInterval(updateTrayClock, 1000)
+    every(1000, updateTrayClock)
   } catch {
     tray = null
   }

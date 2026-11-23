@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { buildReport, filterEntries, periodRange, shiftPeriod, type Breakdown, type Period } from '@shared/reports'
-import { MONTHS_SHORT, dateKey, formatHM, formatLongDate, formatMonth } from '@shared/time'
+import { buildReport, filterEntries, periodDateKeys, periodRange, shiftPeriod, type Breakdown, type Period } from '@shared/reports'
+import { MONTHS_SHORT, formatHM, formatLongDate, formatMonth } from '@shared/time'
 import type { Entry } from '@shared/types'
 import { useData, useNow } from '../data'
 import { ChevronLeft, ChevronRight, DownloadIcon } from '../components/Icons'
@@ -163,8 +163,8 @@ export function ReportsView({ onGoToSettings }: { onGoToSettings(): void }) {
 
       {exporting && (
         <ExportDialog
-          initialFrom={dateKey(from)}
-          initialTo={dateKey(new Date(to.getTime() - 86400000))}
+          initialFrom={periodDateKeys(period, anchor).from}
+          initialTo={periodDateKeys(period, anchor).to}
           initialFilters={filters}
           onClose={() => setExporting(false)}
           onGoToSettings={() => {

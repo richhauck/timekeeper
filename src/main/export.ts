@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { markdownToPlain } from '@shared/markdown'
 import { describeRounding } from '@shared/rounding'
 import { filterEntries, projectLabel, roundEntries } from '@shared/reports'
 import { addDays, decimalHours, parseDateKey } from '@shared/time'
@@ -25,6 +26,8 @@ export function buildWorkbook(entries: Entry[], catalog: Catalog, settings: Sett
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Timekeeper'
   wb.created = new Date()
+  // Ask Excel to recalculate on open; cached results below cover viewers that don't.
+  wb.calcProperties.fullCalcOnLoad = true
 
   const projectById = new Map(catalog.projects.map((p) => [p.id, p]))
   const clientById = new Map(catalog.clients.map((c) => [c.id, c]))
@@ -59,7 +62,8 @@ export function buildWorkbook(entries: Entry[], catalog: Catalog, settings: Sett
         code: p?.code ?? '',
         project: p?.name ?? 'Deleted project',
         tags: r.entry.tagIds.map((id) => tagById.get(id)?.name).filter(Boolean).join(', '),
-        description: r.entry.description,
+        // Match the export preview: Markdown markers removed.
+        description: markdownToPlain(r.entry.description),
         start: excelLocalTime(start),
         end: excelLocalTime(end),
         hours: decimalHours(r.roundedSeconds),
@@ -68,8 +72,10 @@ export function buildWorkbook(entries: Entry[], catalog: Catalog, settings: Sett
     }
     const last = ws.rowCount
     const totalRow = ws.addRow({ description: 'Total' })
-    totalRow.getCell('hours').value = last >= 2 ? { formula: `SUM(I2:I${last})` } : 0
-    totalRow.getCell('hm').value = last >= 2 ? { formula: `SUM(J2:J${last})` } : 0
+    const totalSeconds = rounded.reduce((s, r) => s + r.roundedSeconds, 0)
+    const totalHours = sumHours(rounded.map((r) => decimalHours(r.roundedSeconds)))
+    totalRow.getCell('hours').value = last >= 2 ? { formula: `SUM(I2:I${last})`, result: totalHours } : 0
+    totalRow.getCell('hm').value = last >= 2 ? { formula: `SUM(J2:J${last})`, result: totalSeconds / 86400 } : 0
     totalRow.font = { bold: true }
     ws.autoFilter = { from: 'A1', to: `J${Math.max(1, last)}` }
   }
@@ -94,17 +100,20 @@ export function buildWorkbook(entries: Entry[], catalog: Catalog, settings: Sett
     }
 
     const subtotalCells: string[] = []
+    const subtotals: number[] = []
     for (const client of [...groups.keys()].sort((a, b) => (a === 'No client' ? 1 : b === 'No client' ? -1 : a.localeCompare(b)))) {
       const byProject = groups.get(client)!
       const first = ws.rowCount + 1
+      const hours: number[] = []
       for (const [projectId, seconds] of [...byProject.entries()].sort((a, b) => b[1] - a[1])) {
         const p = projectById.get(projectId)
         const label = p ? projectLabel(p.code, p.name) : 'Deleted project'
         const row = ws.addRow({ client, project: label })
+        hours.push(decimalHours(seconds))
         if (includeEntries && p) {
           // Live formula against the Entries sheet so edits there flow through.
           row.getCell('hours').value = {
-            formula: `SUMIFS(Entries!I:I,Entries!C:C,${xlString(p.code)},Entries!D:D,${xlString(p.name)})`,
+            formula: `SUMIFS(Entries!I:I,Entries!C:C,${xlExactMatch(p.code)},Entries!D:D,${xlExactMatch(p.name)})`,
             result: decimalHours(seconds)
           }
         } else {
@@ -118,12 +127,14 @@ export function buildWorkbook(entries: Entry[], catalog: Catalog, settings: Sett
       }
       const lastRow = ws.rowCount
       const sub = ws.addRow({ client: `${client} total` })
-      sub.getCell('hours').value = { formula: `SUM(C${first}:C${lastRow})` }
+      const subtotal = sumHours(hours)
+      sub.getCell('hours').value = { formula: `SUM(C${first}:C${lastRow})`, result: subtotal }
       sub.font = { bold: true }
       subtotalCells.push(`C${sub.number}`)
+      subtotals.push(subtotal)
     }
     const grand = ws.addRow({ client: 'Total' })
-    grand.getCell('hours').value = subtotalCells.length ? { formula: subtotalCells.join('+') } : 0
+    grand.getCell('hours').value = subtotalCells.length ? { formula: subtotalCells.join('+'), result: sumHours(subtotals) } : 0
     grand.font = { bold: true }
 
     ws.addRow({})
@@ -156,6 +167,21 @@ function excelLocalTime(d: Date): number {
 
 function xlString(s: string): string {
   return `"${s.replace(/"/g, '""')}"`
+}
+
+/**
+ * A SUMIFS criterion that matches `s` exactly. Bare criteria treat * ? ~ as
+ * wildcards and a leading = < > as a comparison, so "Design*" would also
+ * match "Design system". "=" plus the escaped text means "equals this text";
+ * "=" alone matches empty cells, which is what an empty project code needs.
+ */
+function xlExactMatch(s: string): string {
+  return xlString('=' + s.replace(/[~*?]/g, '~$&'))
+}
+
+/** Sum two-decimal hour values without floating point noise like 0.30000000000000004. */
+function sumHours(values: number[]): number {
+  return Math.round(values.reduce((a, b) => a + b, 0) * 100) / 100
 }
 
 /** Black or white text, whichever reads better on the given fill. */
